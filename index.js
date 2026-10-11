@@ -1,47 +1,64 @@
-const express = require('express');
-const { GoogleGenAI } = require('@google/genai');
+ofofconst express = require('express');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 app.use(express.json());
 
-// Inicialização da API do Gemini
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const PORT = process.env.PORT || 3000;
+const apiKey = process.env.GEMINI_API_KEY;
 
-// Rota do Webhook para receber as mensagens do WhatsApp
-app.post('/webhook-whatsapp', async (req, res) => {
-    try {
-        const mensagemCliente = req.body.message;
-        const numeroCliente = req.body.from;
+if (!apiKey) {
+  console.error("ERRO CRÍTICO: A variável GEMINI_API_KEY não foi configurada nas variáveis de ambiente do Render.");
+}
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [
-                {
-                    role: 'system',
-                    parts: [{ 
-                        text: `Você é a assistente virtual de atendimento e triagem do escritório da advogada Dra. Ilma Dutra Ribeiro. 
-                        O seu objetivo é acolher o cliente com empatia, entender o problema dele, fazer perguntas objetivas para qualificar o caso e coletar os dados necessários.
-                        Áreas de atuação: Direito Trabalhista, Direito de Família (divórcio, pensão, guarda), Cível, Burocracias e Carteira de Motorista.
-                        Área NÃO atendida: Criminal/Penal (se for criminal, informe com educação que não atua nessa área).
-                        Nunca dê consultoria jurídica ou prometa resultados. Apenas colete os fatos e solicite o Nome Completo e Telefone no final.` 
-                    }]
-                },
-                {
-                    role: 'user',
-                    parts: [{ text: mensagemCliente }]
-                }
-            ]
-        });
+const genAI = new GoogleGenerativeAI(apiKey || '');
 
-        const respostaIA = response.text;
-        res.status(200).send({ status: 'success', reply: respostaIA });
-    } catch (error) {
-        console.error('Erro no processamento:', error);
-        res.status(500).send({ error: 'Erro interno' });
-    }
+const SYSTEM_INSTRUCTION = `
+Você é a assistente virtual do escritório de advocacia da Dra. Ilma Dutra Ribeiro.
+Seu papel é realizar a TRIAGEM INICIAL de potenciais clientes via WhatsApp nas áreas de:
+- Direito do Trabalho
+- Direito de Família
+- Direito Civil
+- Direito de Trânsito / CNH
+
+Diretrizes Estritas (Conformidade OAB):
+1. NUNCA forneça pareceres jurídicos, consultoria legal ou garanta resultados de causas.
+2. Seja cortês, profissional e empática.
+3. Colete informações essenciais do cliente (Nome completo, Cidade/Estado, resumo da situação e área de interesse).
+4. Ao final da triagem, informe que as informações foram registradas e que a equipe da Dra. Ilma entrará em contato para agendar a consulta formal.
+`;
+
+app.get('/', (req, res) => {
+  res.send('Serviço de Triagem Lawtech V2 ativo e operacional.');
 });
 
-const PORT = process.env.PORT || 3000;
+app.post('/webhook', async (req, res) => {
+  try {
+    const { message, history } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: 'Mensagem não fornecida.' });
+    }
+
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-1.5-flash',
+      systemInstruction: SYSTEM_INSTRUCTION,
+    });
+
+    const chat = model.startChat({
+      history: history || [],
+    });
+
+    const result = await chat.sendMessage(message);
+    const responseText = result.response.text();
+
+    return res.json({ response: responseText });
+  } catch (error) {
+    console.error('Erro ao processar mensagem com Gemini API:', error);
+    return res.status(500).json({ error: 'Erro interno ao processar a requisição.' });
+  }
+});
+
 app.listen(PORT, () => {
-    console.log(`Servidor da Lawtech rodando na porta ${PORT}`);
+  console.log(`Servidor rodando com sucesso na porta ${PORT}`);
 });
